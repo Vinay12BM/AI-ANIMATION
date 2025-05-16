@@ -1,0 +1,207 @@
+import React, { useRef, useState, useEffect } from "react";
+import { cn } from "@/lib/utils";
+
+interface MotionCanvasProps {
+  image: string | null;
+  tool: string;
+  brushSize: number;
+  className?: string;
+}
+
+const MotionCanvas = ({ image, tool, brushSize, className }: MotionCanvasProps) => {
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [cursorPosition, setCursorPosition] = useState({ x: 0, y: 0 });
+  const [canvasSize, setCanvasSize] = useState({ width: 0, height: 0 });
+  
+  // Load image into canvas when it changes
+  useEffect(() => {
+    if (!canvasRef.current || !image) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+    
+    const img = new Image();
+    img.onload = () => {
+      // Reset canvas and calculate dimensions to maintain aspect ratio
+      if (containerRef.current) {
+        const container = containerRef.current;
+        const containerWidth = container.clientWidth;
+        const containerHeight = container.clientHeight;
+        
+        let width = img.width;
+        let height = img.height;
+        
+        const ratio = Math.min(
+          containerWidth / width,
+          containerHeight / height
+        );
+        
+        width *= ratio;
+        height *= ratio;
+        
+        setCanvasSize({ width, height });
+        canvas.width = width;
+        canvas.height = height;
+        
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.drawImage(img, 0, 0, width, height);
+      }
+    };
+    
+    img.src = image;
+  }, [image]);
+  
+  // Handle resize
+  useEffect(() => {
+    const handleResize = () => {
+      if (!canvasRef.current || !image) return;
+      
+      // Re-render image with new container dimensions
+      const img = new Image();
+      img.onload = () => {
+        if (containerRef.current) {
+          const container = containerRef.current;
+          const containerWidth = container.clientWidth;
+          const containerHeight = container.clientHeight;
+          
+          let width = img.width;
+          let height = img.height;
+          
+          const ratio = Math.min(
+            containerWidth / width,
+            containerHeight / height
+          );
+          
+          width *= ratio;
+          height *= ratio;
+          
+          setCanvasSize({ width, height });
+          
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          
+          canvas.width = width;
+          canvas.height = height;
+          
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          ctx.drawImage(img, 0, 0, width, height);
+        }
+      };
+      
+      img.src = image;
+    };
+    
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, [image]);
+  
+  // Drawing functions
+  const startDrawing = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!canvasRef.current || tool === "select" || !image) return;
+    
+    setIsDrawing(true);
+    const { x, y } = getCoordinates(e);
+    draw(x, y);
+  };
+  
+  const stopDrawing = () => {
+    setIsDrawing(false);
+  };
+  
+  const draw = (x: number, y: number) => {
+    if (!canvasRef.current) return;
+    
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext("2d");
+    if (!ctx || !isDrawing) return;
+    
+    ctx.globalCompositeOperation = tool === "erase" ? "destination-out" : "source-over";
+    ctx.lineWidth = brushSize;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(168, 85, 247, 0.5)"; // Purple with opacity
+    
+    ctx.beginPath();
+    ctx.arc(x, y, brushSize / 2, 0, Math.PI * 2);
+    ctx.fill();
+  };
+  
+  const handleMouseMove = (e: React.MouseEvent | React.TouchEvent) => {
+    const { x, y } = getCoordinates(e);
+    setCursorPosition({ x, y });
+    
+    if (isDrawing) {
+      draw(x, y);
+    }
+  };
+  
+  const getCoordinates = (e: React.MouseEvent | React.TouchEvent) => {
+    if (!canvasRef.current) return { x: 0, y: 0 };
+    
+    const canvas = canvasRef.current;
+    const rect = canvas.getBoundingClientRect();
+    
+    if ('touches' in e) {
+      // Touch event
+      return {
+        x: e.touches[0].clientX - rect.left,
+        y: e.touches[0].clientY - rect.top,
+      };
+    } else {
+      // Mouse event
+      return {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top,
+      };
+    }
+  };
+  
+  return (
+    <div 
+      ref={containerRef}
+      className={cn("canvas-container h-full w-full flex items-center justify-center", className)}
+    >
+      {!image ? (
+        <div className="text-muted-foreground text-center p-8 animate-pulse">
+          <p className="text-lg">Upload an image to begin</p>
+          <p className="text-sm">Supported formats: JPG, PNG, WebP</p>
+        </div>
+      ) : (
+        <>
+          <canvas
+            ref={canvasRef}
+            width={canvasSize.width}
+            height={canvasSize.height}
+            className="max-h-full max-w-full"
+            onMouseDown={startDrawing}
+            onMouseUp={stopDrawing}
+            onMouseOut={stopDrawing}
+            onMouseMove={handleMouseMove}
+            onTouchStart={startDrawing}
+            onTouchEnd={stopDrawing}
+            onTouchMove={handleMouseMove}
+          />
+          {tool !== "select" && (
+            <div 
+              className="brush-cursor"
+              style={{
+                width: ${brushSize}px,
+                height: ${brushSize}px,
+                left: ${cursorPosition.x}px,
+                top: ${cursorPosition.y}px,
+                display: image ? "block" : "none",
+              }}
+            />
+          )}
+        </>
+      )}
+    </div>
+  );
+};
+
+export default MotionCanvas;
