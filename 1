@@ -1,0 +1,231 @@
+import React, { useState, useRef, useEffect } from 'react';
+import ImageUploader from '@/components/ImageUploader';
+import MotionCanvas from '@/components/MotionCanvas';
+import ControlPanel from '@/components/ControlPanel';
+import ExportPanel from '@/components/ExportPanel';
+import { Button } from "@/components/ui/button";
+import { MotionZone, applyAnimation, canvasToGif } from '@/utils/motionUtils';
+import { useToast } from "@/components/ui/use-toast";
+
+const Index = () => {
+  const [image, setImage] = useState<HTMLImageElement | null>(null);
+  const [motionZones, setMotionZones] = useState<MotionZone[]>([]);
+  const [selectedMotionType, setSelectedMotionType] = useState<'wave' | 'ripple' | 'flutter'>('wave');
+  const [intensity, setIntensity] = useState(5);
+  const [isDrawing, setIsDrawing] = useState(false);
+  const [isPlaying, setIsPlaying] = useState(false);
+  const [exportDialogOpen, setExportDialogOpen] = useState(false);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  
+  const animationCanvasRef = useRef<HTMLCanvasElement>(null);
+  const animationFrameRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
+  
+  const { toast } = useToast();
+
+  // Handle when a new image is uploaded
+  const handleImageUploaded = (newImage: HTMLImageElement) => {
+    setImage(newImage);
+    setMotionZones([]);
+    setIsPlaying(false);
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+  };
+
+  // Handle when a new motion zone is created
+  const handleZoneCreated = (zone: MotionZone) => {
+    setMotionZones(prev => [...prev, zone]);
+    toast({
+      title: "Motion zone created",
+      description: Added a new ${zone.type} motion effect,
+    });
+  };
+
+  // Clear all motion zones
+  const clearZones = () => {
+    setMotionZones([]);
+    toast({
+      title: "Zones cleared",
+      description: "All motion zones have been removed",
+    });
+  };
+
+  // Toggle animation playback
+  const togglePlayback = () => {
+    setIsPlaying(prev => !prev);
+  };
+
+  // Animation loop
+  useEffect(() => {
+    if (!isPlaying || !image || motionZones.length === 0 || !animationCanvasRef.current) return;
+    
+    const canvas = animationCanvasRef.current;
+    canvas.width = image.width;
+    canvas.height = image.height;
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    startTimeRef.current = performance.now();
+    
+    const animate = (time: number) => {
+      const elapsed = time - startTimeRef.current;
+      applyAnimation(ctx, image, motionZones, elapsed);
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+    
+    animationFrameRef.current = requestAnimationFrame(animate);
+    
+    return () => {
+      if (animationFrameRef.current) {
+        cancelAnimationFrame(animationFrameRef.current);
+      }
+    };
+  }, [isPlaying, image, motionZones]);
+
+  // Handle export button click
+  const handleExportClick = () => {
+    if (!image || motionZones.length === 0 || !animationCanvasRef.current) return;
+    
+    // Generate a preview frame for the export dialog
+    const canvas = animationCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    canvas.width = image.width;
+    canvas.height = image.height;
+    applyAnimation(ctx, image, motionZones, 0);
+    setPreviewUrl(canvas.toDataURL('image/png'));
+    setExportDialogOpen(true);
+  };
+
+  // Handle actual export
+  const handleExport = async (format: 'gif' | 'mp4' | 'webp', duration: number, fps: number) => {
+    if (!animationCanvasRef.current || !image) return;
+    
+    try {
+      toast({
+        title: "Exporting animation",
+        description: "Your animation is being processed...",
+      });
+      
+      // In a real app, we would generate an actual animation here
+      // For this demo, we'll just use a single frame
+      const blob = await canvasToGif(animationCanvasRef.current);
+      
+      // Create a download link
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = motion-animation.${format};
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      
+      toast({
+        title: "Export complete",
+        description: Your animation has been exported as ${format.toUpperCase()},
+      });
+      
+      setExportDialogOpen(false);
+    } catch (error) {
+      console.error('Export error:', error);
+      toast({
+        title: "Export failed",
+        description: "There was an error exporting your animation",
+        variant: "destructive",
+      });
+    }
+  };
+
+  return (
+    <div className="min-h-screen bg-background">
+      <div className="container mx-auto py-8 px-4">
+        <header className="mb-8 text-center">
+          <h1 className="text-3xl font-bold bg-gradient-to-r from-motion to-motion-accent inline-block text-transparent bg-clip-text">
+            Motion Painter
+          </h1>
+          <p className="text-muted-foreground mt-2">
+            Bring your images to life with realistic motion effects
+          </p>
+        </header>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <div className="md:col-span-2 space-y-6">
+            {!image ? (
+              <div className="bg-card p-6 rounded-lg shadow-lg">
+                <ImageUploader onImageUploaded={handleImageUploaded} />
+              </div>
+            ) : (
+              <div className="space-y-4">
+                <MotionCanvas 
+                  image={image}
+                  selectedMotionType={selectedMotionType}
+                  intensity={intensity}
+                  isDrawing={isDrawing}
+                  onZoneCreated={handleZoneCreated}
+                  motionZones={motionZones}
+                />
+                
+                {/* Hidden canvas for animation rendering */}
+                <canvas 
+                  ref={animationCanvasRef} 
+                  style={{ display: 'none' }}
+                />
+                
+                <div className="flex justify-end">
+                  <Button 
+                    variant="outline" 
+                    onClick={() => setImage(null)}
+                  >
+                    Choose Different Image
+                  </Button>
+                </div>
+              </div>
+            )}
+          </div>
+          
+          <div className="space-y-4">
+            {image && (
+              <ControlPanel 
+                selectedMotionType={selectedMotionType}
+                setSelectedMotionType={setSelectedMotionType}
+                intensity={intensity}
+                setIntensity={setIntensity}
+                isDrawing={isDrawing}
+                setIsDrawing={setIsDrawing}
+                motionZones={motionZones}
+                clearZones={clearZones}
+                isPlaying={isPlaying}
+                togglePlayback={togglePlayback}
+                onExport={handleExportClick}
+              />
+            )}
+            
+            <div className="bg-card p-4 rounded-lg space-y-3">
+              <h3 className="font-medium">How to use Motion Painter</h3>
+              <ol className="list-decimal list-inside text-sm space-y-2 text-muted-foreground">
+                <li>Upload an image or select an example</li>
+                <li>Choose a motion effect type (Wave, Ripple, or Flutter)</li>
+                <li>Enable drawing mode and draw around areas to animate</li>
+                <li>Adjust the intensity as desired</li>
+                <li>Press play to preview your animation</li>
+                <li>Export as GIF, MP4, or WebP</li>
+              </ol>
+            </div>
+          </div>
+        </div>
+      </div>
+      
+      <ExportPanel
+        open={exportDialogOpen}
+        onClose={() => setExportDialogOpen(false)}
+        onExport={handleExport}
+        previewUrl={previewUrl}
+      />
+    </div>
+  );
+};
+
+export default Index;
